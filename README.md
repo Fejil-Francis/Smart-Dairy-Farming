@@ -44,9 +44,7 @@ An IoT-based cattle health monitoring system that enables real-time monitoring o
 Smart-Dairy-Farming/
 ├── src/
 ├── docs/
-├── images/
 ├── README.md
-└── LICENSE
 ```
 
 ---
