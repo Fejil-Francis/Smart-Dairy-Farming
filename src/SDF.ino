@@ -9,8 +9,8 @@
 #include "spo2_algorithm.h"
 
 // --- Configuration ---
-const char* ssid = "vivo";
-const char* password = "fejileee";
+const char* ssid = "";
+const char* password = "";
 const String scriptID = "AKfycbz71D1hCc6DUin-FpbYAlMChVa-GqL16mMAljaexcDV_KKBq_BlNuk9Dasa_zGE6AL6iA";
 
 ESP8266WebServer server(80);
