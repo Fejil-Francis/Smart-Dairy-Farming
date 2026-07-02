@@ -1,6 +1,6 @@
 # 🐄 Smart Dairy Farming
 
-An IoT-based cattle health monitoring system that enables real-time monitoring of cattle health and activity using ESP32 and multiple sensors. The system collects sensor data, transmits it over Wi-Fi, and stores it in Google Sheets through Google Apps Script for easy access and analysis.
+An IoT-based cattle health monitoring system that enables real-time monitoring of cattle health and activity using ESP8266 and multiple sensors. The system collects sensor data, transmits it over Wi-Fi, and stores it in Google Sheets through Google Apps Script for easy access and analysis.
 
 ---
 
@@ -18,7 +18,7 @@ An IoT-based cattle health monitoring system that enables real-time monitoring o
 
 ## 🛠️ Hardware Used
 
-* ESP32
+* ESP8266
 * MAX30102 (Heart Rate & SpO₂ Sensor)
 * MPU6050 (Accelerometer & Gyroscope)
 * Temperature Sensor
@@ -51,7 +51,7 @@ Smart-Dairy-Farming/
 
 ## 🚀 Usage
 
-1. Connect all sensors to the ESP32.
+1. Connect all sensors to the ESP8266.
 2. Upload the firmware using the Arduino IDE.
 3. Configure the Wi-Fi SSID and password.
 4. Deploy the Google Apps Script as a Web App.
@@ -66,7 +66,7 @@ Smart-Dairy-Farming/
 ```text
 Sensors
    ↓
-ESP32
+ESP8266
    ↓ (Wi-Fi + HTTP)
 Google Apps Script
    ↓
@@ -80,7 +80,7 @@ Monitoring Dashboard
 ## 📌 Current Status
 
 * ✅ Hardware setup completed
-* ✅ Sensors integrated with ESP32
+* ✅ Sensors integrated with ESP8266
 * ✅ Wi-Fi communication implemented
 * ✅ Google Apps Script configured
 * ⏳ Ready for real-time data collection and analysis
