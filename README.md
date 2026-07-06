@@ -24,6 +24,7 @@ An IoT-based cattle health monitoring system that enables real-time monitoring o
 * Temperature Sensor
 * Breadboard and Jumper Wires
 * Rechargeable Battery
+* HW-668 booster module
 
 ---
 
@@ -51,13 +52,22 @@ Smart-Dairy-Farming/
 
 ## 🚀 Usage
 
-1. Connect all sensors to the ESP8266.
-2. Upload the firmware using the Arduino IDE.
-3. Configure the Wi-Fi SSID and password.
-4. Deploy the Google Apps Script as a Web App.
-5. Update the Web App URL in the ESP32 code.
-6. Power on the device.
-7. Sensor data will be transmitted to Google Sheets in real time.
+1. Connect the MAX30102, MPU6050, buzzer, and all other required sensors to the ESP8266 NodeMCU according to the circuit diagram.
+2. Connect the battery to the input terminals (VIN+/VIN−) of the DC-DC booster (boost converter).
+3. Adjust the booster output to the required voltage (typically 5 V for the ESP8266 VIN pin or 3.3 V if powering the regulated 3.3 V rail directly).
+4. Connect the booster output to the ESP8266 power input (VIN and GND, or 3.3 V and GND as appropriate).
+5. Install the Arduino IDE on your computer.
+6. Install the ESP8266 board package and all the required libraries.
+7. Open the project in the Arduino IDE.
+8. Configure the Wi-Fi SSID and password in the source code.
+9. Deploy the Google Apps Script as a Web App.
+10. Update the Google Apps Script Web App URL (or Script ID) in the ESP8266 source code.
+11. Connect the ESP8266 to the computer using a USB cable and upload the firmware through the Arduino IDE.
+12. Disconnect the USB cable (if required) and power the system using the battery through the booster module.
+13. Wait for the ESP8266 to connect to the configured Wi-Fi network.
+14. The ESP8266 will acquire data from the MAX30102 and MPU6050 sensors and transmit the readings to Google Sheets in real time.
+15. Open the Google Sheet or the ESP8266 web dashboard to monitor the live sensor data.
+
 
 ---
 
