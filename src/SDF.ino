@@ -3,147 +3,274 @@
 #include <ESP8266HTTPClient.h>
 #include <WiFiClientSecure.h>
 #include <Wire.h>
+
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
+
 #include "MAX30105.h"
 #include "spo2_algorithm.h"
 
-// --- Configuration ---
+//=========================
+// WiFi Configuration
+//=========================
 const char* ssid = "";
 const char* password = "";
-const String scriptID = "AKfycbz71D1hCc6DUin-FpbYAlMChVa-GqL16mMAljaexcDV_KKBq_BlNuk9Dasa_zGE6AL6iA";
 
+// Google Apps Script ID
+String scriptID = "AKfycbz71D1hCc6DUin-FpbYAlMChVa-GqL16mMAljaexcDV_KKBq_BlNuk9Dasa_zGE6AL6iA";
+
+//=========================
+// Objects
+//=========================
 ESP8266WebServer server(80);
+
 Adafruit_MPU6050 mpu;
 MAX30105 particleSensor;
 
-uint32_t irBuffer[100], redBuffer[100];
-int32_t spo2, heartRate;
-int8_t validSPO2, validHeartRate;
-unsigned long lastCloudUpload = 0;
+//=========================
+// Variables
+//=========================
+uint32_t irBuffer[100];
+uint32_t redBuffer[100];
 
-// --- Dashboard HTML ---
-const char INDEX_HTML[] PROGMEM = R"=====(
-<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Cattle Monitor</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+int32_t spo2 = 0;
+int32_t heartRate = 0;
+
+int8_t validSPO2 = 0;
+int8_t validHeartRate = 0;
+
+unsigned long lastUpload = 0;
+
+//=========================
+// Dashboard HTML
+//=========================
+const char webpage[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Cattle Monitor</title>
 <style>
-  body { font-family: sans-serif; background: #0d1117; color: #c9d1d9; text-align: center; margin:0; }
-  .header { background: #161b22; padding: 20px; border-bottom: 2px solid #58a6ff; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; padding: 20px; }
-  .card { background: #161b22; padding: 25px; border-radius: 12px; border: 1px solid #30363d; box-shadow: 0 4px 8px rgba(0,0,0,0.3); }
-  .label { color: #8b949e; font-size: 0.8rem; margin-bottom: 10px; }
-  .val { font-size: 2.2rem; color: #58a6ff; font-weight: bold; }
-</style></head><body>
-  <div class="header"><h1>CATTLE TELEMETRY LIVE</h1></div>
-  <div class="grid">
-    <div class="card"><div class="label">HEART RATE (BPM)</div><div class="val" id="bpm">--</div></div>
-    <div class="card"><div class="label">OXYGEN (SpO2 %)</div><div class="val" id="spo2">--</div></div>
-    <div class="card"><div class="label">TEMP (°C)</div><div class="val" id="temp">--</div></div>
-    <div class="card"><div class="label">MOTION (G-FORCE)</div><div class="val" id="mag">--</div></div>
-  </div>
-  <script>
-    setInterval(() => {
-      fetch('/data').then(r => r.json()).then(d => {
-        document.getElementById('bpm').innerText = d.bpm > 0 ? d.bpm : "Scanning...";
-        document.getElementById('spo2').innerText = d.spo2 > 0 ? d.spo2 : "--";
-        document.getElementById('temp').innerText = d.temp;
-        let m = Math.sqrt(d.ax**2 + d.ay**2 + d.az**2).toFixed(2);
-        document.getElementById('mag').innerText = m;
-      }).catch(e => console.log("Waiting for data..."));
-    }, 1000);
-  </script>
-</body></html>
-)=====";
+body{ background:#111827; color:white; font-family:Arial; text-align:center; }
+.card{ display:inline-block; width:220px; padding:20px; margin:15px; background:#1f2937; border-radius:10px; font-size:24px; }
+.value{ font-size:36px; color:#00d4ff; }
+</style>
+</head>
+<body>
+<h1>Cattle Health Monitoring</h1>
+<div class="card">Heart Rate<div class="value" id="hr">--</div></div>
+<div class="card">SpO₂<div class="value" id="spo2">--</div></div>
+<div class="card">Temperature<div class="value" id="temp">--</div></div>
+<div class="card">Acceleration<div class="value" id="acc">--</div></div>
+<script>
+setInterval(function(){
+fetch("/data")
+.then(r=>r.json())
+.then(data=>{
+document.getElementById("hr").innerHTML = data.hr > 0 ? data.hr + " BPM" : "--";
+document.getElementById("spo2").innerHTML = data.spo2 > 0 ? data.spo2 + " %" : "--";
+document.getElementById("temp").innerHTML = data.temp + " °C";
+let mag = Math.sqrt(data.ax*data.ax + data.ay*data.ay + data.az*data.az);
+document.getElementById("acc").innerHTML = mag.toFixed(2);
+});
+}, 1000);
+</script>
+</body>
+</html>
+)rawliteral";
 
-// --- Functions must be defined BEFORE setup() ---
+//=========================
+// Function Prototypes
+//=========================
+void handleRoot();
+void handleData();
+void sendToGoogle(float,float,float,float,float,float,float,float,float);
+void fillSensorBuffer();
 
-void handleRoot() { 
-  server.send(200, "text/html", INDEX_HTML); 
+//=========================
+// Setup
+//=========================
+void setup()
+{
+    Serial.begin(115200);
+
+    // SDA = D2, SCL = D1
+    Wire.begin(D2, D1);
+    Wire.setClock(400000); 
+
+    Serial.println("\nInitializing MPU6050...");
+    if(!mpu.begin()) {
+        Serial.println("MPU6050 NOT FOUND");
+    }
+
+    Serial.println("Initializing MAX30102...");
+    if(!particleSensor.begin(Wire, I2C_SPEED_FAST)) {
+        Serial.println("MAX30102 NOT FOUND");
+    }
+
+    // Settings matched precisely for the Maxim algorithm sample expectations
+    particleSensor.setup(60, 4, 2, 100, 411, 4096);
+
+    Serial.println("Connecting WiFi...");
+    WiFi.begin(ssid, password);
+    while(WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("\nConnected!");
+
+    server.on("/", handleRoot);
+    server.on("/data", handleData);
+    server.begin();
+
+    fillSensorBuffer();
+}
+
+//====================================================
+// Web Server Handlers
+//====================================================
+void handleRoot() {
+    server.send_P(200, "text/html", webpage);
 }
 
 void handleData() {
-  sensors_event_t a, g, t;
-  mpu.getEvent(&a, &g, &t);
-  float bodyTemp = particleSensor.readTemperature();
-  
-  String json = "{";
-  json += "\"bpm\":" + String(validHeartRate ? heartRate : 0) + ",";
-  json += "\"spo2\":" + String(validSPO2 ? spo2 : 0) + ",";
-  json += "\"temp\":" + String(bodyTemp, 1) + ",";
-  json += "\"ax\":" + String(a.acceleration.x) + ",";
-  json += "\"ay\":" + String(a.acceleration.y) + ",";
-  json += "\"az\":" + String(a.acceleration.z);
-  json += "}";
-  server.send(200, "application/json", json);
+    sensors_event_t accel, gyro, tempEvent;
+    mpu.getEvent(&accel, &gyro, &tempEvent);
+    float sensorTemp = particleSensor.readTemperature();
+
+    String json = "{";
+    json += "\"hr\":" + String(validHeartRate ? heartRate : 0) + ",";
+    json += "\"spo2\":" + String(validSPO2 ? spo2 : 0) + ",";
+    json += "\"temp\":" + String(sensorTemp, 1) + ",";
+    json += "\"ax\":" + String(accel.acceleration.x, 2) + ",";
+    json += "\"ay\":" + String(accel.acceleration.y, 2) + ",";
+    json += "\"az\":" + String(accel.acceleration.z, 2);
+    json += "}";
+
+    server.send(200, "application/json", json);
 }
 
-void sendToGoogle(int hr, int ox, float temp, float ax, float ay, float az, float gx, float gy, float gz) {
-  WiFiClientSecure client;
-  client.setInsecure();
-  HTTPClient http;
-  
-  String url = "https://script.google.com/macros/s/" + scriptID + "/exec?";
-  url += "bpm=" + String(hr) + "&spo2=" + String(ox) + "&temp=" + String(temp, 1);
-  url += "&ax=" + String(ax) + "&ay=" + String(ay) + "&az=" + String(az);
-  url += "&gx=" + String(gx) + "&gy=" + String(gy) + "&gz=" + String(gz);
+//====================================================
+// Google Sheets Upload (With Built-in Redirection Follow)
+//====================================================
+//====================================================
+// Google Sheets Upload (Fixed Redirect Method)
+//====================================================
+void sendToGoogle(float hr, float spo, float temp, float ax, float ay, float az, float gx, float gy, float gz) {
+    if (WiFi.status() != WL_CONNECTED) return;
 
-  if (http.begin(client, url)) {
-    int code = http.GET();
-    Serial.println("Google Sheets Sync: " + String(code));
-    http.end();
-  }
+    std::unique_ptr<WiFiClientSecure> client(new WiFiClientSecure);
+    client->setInsecure();
+
+    HTTPClient http;
+    http.setTimeout(4000); 
+
+    // Explicitly tell the client to collect the "Location" header for redirects
+    const char* headerKeys[] = {"Location"};
+    http.collectHeaders(headerKeys, 1);
+
+    String url = "https://script.google.com/macros/s/" + scriptID + "/exec?";
+    url += "bpm=" + String(hr);
+    url += "&spo2=" + String(spo);
+    url += "&temp=" + String(temp, 1);
+    url += "&ax=" + String(ax, 2);
+    url += "&ay=" + String(ay, 2);
+    url += "&az=" + String(az, 2);
+    url += "&gx=" + String(gx, 2);
+    url += "&gy=" + String(gy, 2);
+    url += "&gz=" + String(gz, 2);
+
+    Serial.println("Contacting Google Web App...");
+    if (http.begin(*client, url)) {
+        int code = http.GET();
+        Serial.print("Initial Code: "); Serial.println(code);
+
+        // Handle Google Apps Script 302 Redirect via getLocation()
+        if (code == 302 || code == 301) {
+            String redirectUrl = http.getLocation();
+            if (redirectUrl.length() > 0) {
+                http.end(); // Close connection before following
+                Serial.println("Following Redirect...");
+                if (http.begin(*client, redirectUrl)) {
+                    code = http.GET();
+                    Serial.print("Final Sheet Code: "); Serial.println(code);
+                }
+            }
+        }
+        http.end();
+    }
 }
 
-void setup() {
-  Serial.begin(115200);
-  Wire.begin(4, 5);
-  
-  if(!mpu.begin()) { Serial.println("MPU6050 Missing"); while(1) yield(); }
-  if(!particleSensor.begin(Wire, I2C_SPEED_FAST)) { Serial.println("MAX30102 Missing"); while(1) yield(); }
-  
-  particleSensor.setup(60, 4, 2, 100, 411, 4096);
-  
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
-  Serial.println("\nIP: " + WiFi.localIP().toString());
-  
-  server.on("/", handleRoot);
-  server.on("/data", handleData);
-  server.begin();
-  
-  // Fill initial buffer
-  for (byte i = 0; i < 100; i++) {
-    while (!particleSensor.available()) particleSensor.check();
-    redBuffer[i] = particleSensor.getRed();
-    irBuffer[i] = particleSensor.getIR();
-    particleSensor.nextSample();
-  }
+// Anti-Freeze Buffered Reader
+void fillSensorBuffer() {
+    for(int i = 0; i < 100; i++) {
+        unsigned long waitStart = millis();
+        while(!particleSensor.available()) {
+            particleSensor.check();
+            server.handleClient(); 
+            yield();
+            if (millis() - waitStart > 100) break; // Latch Break if sensor misses a beat
+        }
+        redBuffer[i] = particleSensor.getRed();
+        irBuffer[i] = particleSensor.getIR();
+        particleSensor.nextSample();
+    }
 }
 
-void loop() {
-  server.handleClient();
-  yield();
+//====================================================
+// Main Loop
+//====================================================
+void loop()
+{
+    server.handleClient();
+    yield();
 
-  // Sliding window update
-  for (byte i = 25; i < 100; i++) {
-    redBuffer[i-25] = redBuffer[i];
-    irBuffer[i-25] = irBuffer[i];
-  }
-  for (byte i = 75; i < 100; i++) {
-    while (!particleSensor.available()) { particleSensor.check(); yield(); }
-    redBuffer[i] = particleSensor.getRed();
-    irBuffer[i] = particleSensor.getIR();
-    particleSensor.nextSample();
-  }
+    // Shift data window
+    for (byte i = 25; i < 100; i++) {
+        redBuffer[i - 25] = redBuffer[i];
+        irBuffer[i - 25] = irBuffer[i];
+    }
 
-  maxim_heart_rate_and_oxygen_saturation(irBuffer, 100, redBuffer, &spo2, &validSPO2, &heartRate, &validHeartRate);
+    // Read 25 fresh samples safely
+    for (byte i = 75; i < 100; i++) {
+        unsigned long waitStart = millis();
+        while (!particleSensor.available()) {
+            particleSensor.check();
+            server.handleClient(); 
+            yield();
+            if (millis() - waitStart > 100) break; 
+        }
+        redBuffer[i] = particleSensor.getRed();
+        irBuffer[i] = particleSensor.getIR();
+        particleSensor.nextSample();
+    }
 
-  if (millis() - lastCloudUpload > 15000) {
-    sensors_event_t a, g, t;
-    mpu.getEvent(&a, &g, &t);
-    sendToGoogle(validHeartRate ? heartRate : 0, validSPO2 ? spo2 : 0, 
-                 particleSensor.readTemperature(), a.acceleration.x, a.acceleration.y, a.acceleration.z, 
-                 g.gyro.x, g.gyro.y, g.gyro.z);
-    lastCloudUpload = millis();
-  }
+    // Run processing calculations
+    maxim_heart_rate_and_oxygen_saturation(
+        irBuffer, 100, redBuffer, &spo2, &validSPO2, &heartRate, &validHeartRate
+    );
+
+    // Collect MPU6050 Metrics
+    sensors_event_t accel, gyro, tempEvent;
+    mpu.getEvent(&accel, &gyro, &tempEvent);
+
+    // Serial Terminal Output
+    Serial.println("===============================");
+    Serial.print("HR: "); Serial.println(validHeartRate ? String(heartRate) : "Calculating...");
+    Serial.print("SpO2: "); Serial.println(validSPO2 ? String(spo2) : "Calculating...");
+
+    // Upload precisely every 3000ms
+    if (millis() - lastUpload >= 3000) {
+        sendToGoogle(
+            validHeartRate ? heartRate : 0,
+            validSPO2 ? spo2 : 0,
+            particleSensor.readTemperature(),
+            accel.acceleration.x, accel.acceleration.y, accel.acceleration.z,
+            gyro.gyro.x, gyro.gyro.y, gyro.gyro.z
+        );
+        lastUpload = millis();
+        fillSensorBuffer(); // Clear lag anomalies
+    }
+
+    delay(15);
 }
